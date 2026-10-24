@@ -1,7 +1,24 @@
+// Memori sementara untuk menyimpan link (Mencegah Google Sheets kena limit)
+const urlCache = new Map();
+const CACHE_TTL = 60 * 60 * 1000; // Ingatan bertahan 5 menit (dalam milidetik)
+
 export default async function handler(req, res) {
   // Mengambil parameter ID dari URL (contoh: ?id=er2x84)
   const { id } = req.query;
 
+
+  const forceReset = req.query.reset === 'true'; // Deteksi jika kamu minta reset paksa
+
+  // Cek apakah data masih ada di memori dan tidak sedang di-reset paksa
+  if (!forceReset && id && urlCache.has(id)) {
+    const cachedData = urlCache.get(id);
+    if (Date.now() - cachedData.timestamp < CACHE_TTL) {
+      console.log(`[CACHE HIT] Mengalihkan ID ${id} instan`);
+      return res.redirect(302, cachedData.url);
+    }
+  }
+
+  
   // Kalau ada yang akses tanpa ID, alihkan ke landing page kamu
   if (!id) {
     return res.redirect(302, 'https://domain-kamu.com/belum-aktif'); 
@@ -39,10 +56,16 @@ export default async function handler(req, res) {
 
     // Kalau ID ketemu dan Kolom B tidak kosong
     if (targetUrl && targetUrl.trim() !== '') {
-      // Fitur andalan Vercel: CACHE 1 Jam (3600 detik)
-      // Supaya aman dari limit Google dan loadingnya secepat kilat!
-      res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate');
-      return res.redirect(302, targetUrl);
+      // Simpan link baru ke dalam memori Vercel beserta waktu penyimpanannya
+    urlCache.set(id, {
+      url: targetUrl,
+      timestamp: Date.now()
+    });
+
+    // Pastikan cache bawaan Edge dinonaktifkan agar fitur reset manual bisa jalan
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
+    return res.redirect(302, targetUrl);
+      
     } else {
       // Kalau ID tidak ditemukan atau belum ada link review (belum laku)
       return res.redirect(302, 'https://domain-kamu.com/belum-aktif'); 
